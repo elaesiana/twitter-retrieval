@@ -184,7 +184,7 @@ def searchTweets(api, query, since_date, max_date, max_id,last_result, filename,
     return result
 
 def startScraping(api, queries, filename,since_date=getCurrentDate(), max_date=getCustomDate(8),
-                  max_id=None, print_dates=False,lang=None, locale=None, result_type='recent'):     
+                  max_id=None, print_dates=True,lang=None, locale=None, result_type='recent'):     
     print(since_date)
     for i,query in enumerate(queries):
         print(query)
