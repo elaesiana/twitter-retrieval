@@ -5,7 +5,7 @@ from datetime import datetime
 from datetime import timedelta
 import time
 from os import path
-import uploadtoGDrive
+import csv
 
 def authenticate(api_key, api_key_secret, access_token, access_token_secret,
                  wait_on_rate_limit=True, 
@@ -25,26 +25,33 @@ def authenticate(api_key, api_key_secret, access_token, access_token_secret,
         print('Failed to access Twitter API')
         return
     
-def getDate(format_ = '%m/%d/%Y'):
+def getCurrentDate(format_ = '%Y-%m-%d'):
     return datetime.today().strftime(format_)
 
 def getCreateDate(result):
-    return result.created_at.strftime("%m/%d/%Y")
+    return result.created_at.strftime('%Y-%m-%d')
 
 def getTweetId(result):
     return result.id
 
-def getCustomDate(delta, format_):
+def getCustomDate(delta, format_='%Y-%m-%d'):
     return datetime.strftime(datetime.now() - timedelta(delta), format_)
 
 def checkMaxDate(current_date, max_date):
-    current_date = datetime.strptime(current_date,'%m/%d/%Y')
-    max_date = datetime.strptime(max_date,'%m/%d/%Y')
+    current_date = datetime.strptime(current_date,'%Y-%m-%d')
+    max_date = datetime.strptime(max_date,'%Y-%m-%d')
     
     if (current_date - max_date).days <= 9:
         return True
     else:
         return print('Max date exceeds the 7 days limit')
+    
+def n_day(since_date):
+    current_date = getCurrentDate()
+    current_date = datetime.strptime(current_date,'%Y-%m-%d')
+    since_date = datetime.strptime(since_date,'%Y-%m-%d')
+    
+    return (current_date - since_date).days
 
 def saveToCsv(filename, search_results):
 
@@ -57,83 +64,76 @@ def saveToCsv(filename, search_results):
         search_results.to_csv(filename+'.csv', index=False, encoding='utf-8-sig')
         return print('File has been save in csv file')
             
-
-                
-                 
-def uploadToGDrive(filename):
-    return uploadtoGDrive.upload(filename+'.csv')
-
-def initializeTweetAttributes():
-    tweet_attributes = {
-        'id' : [],
-        'date' : [],
-        'time' : [],
-        'user_id' : [],
-        'name' : [],
-        'username' : [],
-        'tweet' : [],
-        'retweet_count' : [],
-        'favorite_count' : [],
-        'link_tweet' : [],
-        'url_in_tweet' : [],
-        'hashtags' : [],
-        'lang' : [],
-        'in_reply_to_status' : [],
-        'is_quote_status' : [],
-        'is_retweet' : [],
-        'retweeted_status' : [],
-        'retweeted_status_name' : [],
-        }
-    return tweet_attributes
         
-def appendSearchResult(result, tweet_attributes):
-    tweet_attributes['id'].append(result.id)
-    tweet_attributes['date'].append(result.created_at.strftime("%m/%d/%Y"))
-    tweet_attributes['time'].append(result.created_at.strftime("%H:%M:%S"))
-    tweet_attributes['user_id'].append(result.user.id_str)
-    tweet_attributes['name'].append(result.user.name)
-    tweet_attributes['username'].append(result.user.screen_name)
-    tweet_attributes['tweet'].append(result.full_text)
-    tweet_attributes['retweet_count'].append(result.retweet_count)
-    tweet_attributes['favorite_count'].append(result.favorite_count)
+def appendSearchResult(result, writer):
     url = 'https://twitter.com/{username}/status/{id_tweet}'.format(username=result.user.screen_name, id_tweet=result.id)
-    tweet_attributes['link_tweet'].append(url)
+    try:
+        url_in_tweet =result.entities['urls'][0]['url']
+    except:
+        url_in_tweet ='-'
     
     try:
-        tweet_attributes['url_in_tweet'].append(result.entities['urls'][0]['url'])
+        in_reply_to_status =result.in_reply_to_screen_name
     except:
-        tweet_attributes['url_in_tweet'].append('-')
-
-    try:
-        tweet_attributes['in_reply_to_status'].append(result.in_reply_to_screen_name)
-    except:
-        tweet_attributes['in_reply_to_status'].append('-')
+        in_reply_to_status ='-'
         
-    tweet_attributes['is_quote_status'].append(result.is_quote_status)
     try:
         if result.retweeted_status:
-            tweet_attributes['is_retweet'].append('True')
-            tweet_attributes['retweeted_status'].append(result.retweeted_status.full_text)
-            tweet_attributes['retweeted_status_name'].append(result.retweeted_status.user.screen_name)
+            is_retweet='True'
+            retweeted_status=result.retweeted_status.full_text
+            retweeted_status_name=result.retweeted_status.user.screen_name
     except:
-        tweet_attributes['is_retweet'].append('False')
-        tweet_attributes['retweeted_status'].append('-')
-        tweet_attributes['retweeted_status_name'].append('-')
-        
-    tweet_attributes['hashtags'].append(result.entities['hashtags'])
-    
+        is_retweet='False'
+        retweeted_status='-'
+        retweeted_status_name='-'
     try:
-        tweet_attributes['lang'].append(result.lang)
+        lang=result.lang
     except:
-        tweet_attributes['lang'].append('-')
+        lang='-'
+        
+    writer.writerow({
+    'id' : result.id,
+    'date':result.created_at.strftime("%m/%d/%Y"),
+    'time':result.created_at.strftime("%H:%M:%S"),
+    'user_id':result.user.id_str,
+    'name':result.user.name,
+    'username':result.user.screen_name,
+    'tweet':result.full_text,
+    'retweet_count':result.retweet_count,
+    'favorite_count':result.favorite_count,
+    'link_tweet':url,
+    'url_in_tweet':url_in_tweet,
+    'in_reply_to_status': in_reply_to_status ,
+    'is_quote_status':result.is_quote_status,
+    'is_retweet':is_retweet,
+    'retweeted_status':retweeted_status,
+    'retweeted_status_name':retweeted_status_name,
+    'hashtags':result.entities['hashtags'],
+    'lang': lang})
 
-def searchTweets(api, query, current_date, max_date, max_id,
-                tweet_attributes,lang=None, locale=None, result_type='recent', print_dates=False):
-    if checkMaxDate(current_date, max_date):
+def searchTweets(api, query, since_date, max_date, max_id,last_result, filename,
+                lang=None, locale=None, result_type='recent', print_dates=False):
+    
+    if checkMaxDate(since_date, max_date):
+        
+        fieldnames = ['id','date','time','user_id','name','username',
+        'tweet', 'retweet_count','favorite_count','link_tweet',
+        'url_in_tweet', 'hashtags', 'lang','in_reply_to_status',
+        'is_quote_status','is_retweet','retweeted_status',
+        'retweeted_status_name' ]
+        
+        if path.exists(filename+'.csv'):
+            csvfile = open("{}.csv".format(filename), 'a', encoding='utf-8-sig')
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        else:
+            csvfile = open("{}.csv".format(filename), 'a', encoding='utf-8-sig')
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+
         if max_id==None:
-            search_results = api.search(q=query, lang=None, locale=None, result_type='recent',
-                                        count=5, tweet_mode='extended', until=getCustomDate(0,'%Y-%m-%d'))
-            appendSearchResult(search_results[0], tweet_attributes)
+            search_results = api.search(q=query, lang=None, locale=None, result_type=result_type,
+                                        count=5, tweet_mode='extended', until=getCustomDate(n_day(since_date)-1,'%Y-%m-%d'))
+            appendSearchResult(search_results[0], writer)
             last_date = getCreateDate(search_results[0])
             if print_dates==True:
                 print(last_date)
@@ -147,7 +147,9 @@ def searchTweets(api, query, current_date, max_date, max_id,
                     print('search result is empty')
                     break
                 for result in search_results:
-                    appendSearchResult(result, tweet_attributes)
+                    appendSearchResult(result, writer)
+                    last_result['id'] = result.id
+                    last_result['date'] = result.created_at.strftime("%Y-%m-%d")
     
                 last_date = getCreateDate(result)
                 last_id = getTweetId(result) 
@@ -158,7 +160,7 @@ def searchTweets(api, query, current_date, max_date, max_id,
                     break
         else:
             print('run with max id')
-            last_date = current_date
+            last_date = since_date
             while last_date != max_date:
                 
                 search_results = api.search(q=query,max_id=max_id-1, lang=None, locale=None, 
@@ -167,7 +169,9 @@ def searchTweets(api, query, current_date, max_date, max_id,
                     print('search result is empty')
                     break
                 for result in search_results:
-                    appendSearchResult(result, tweet_attributes)
+                    appendSearchResult(result, writer)
+                    last_result['id'] = result.id
+                    last_result['date'] = result.created_at.strftime("%Y-%m-%d")
         
                 last_date = getCreateDate(result)
                 max_id = getTweetId(result)  
@@ -177,42 +181,29 @@ def searchTweets(api, query, current_date, max_date, max_id,
                 if last_date == max_date:
                     break
 
-    
-    tweet_attributes_df = pd.DataFrame(tweet_attributes)
-    return tweet_attributes_df
+    return result
 
-def startScraping(api, queries, filename, tweet_attributes,max_date,
-                  print_dates=False,lang=None, locale=None, result_type='recent'):     
+def startScraping(api, queries, filename,since_date=getCurrentDate(), max_date=getCustomDate(8),
+                  max_id=None, print_dates=False,lang=None, locale=None, result_type='recent'):     
+    print(since_date)
     for i,query in enumerate(queries):
-        tweet_attributes = initializeTweetAttributes()
-        current_date = getDate()
-        #max_date = getCustomDate(8,"%m/%d/%Y")
-        max_id = None
-        print(max_id==None)
         print(query)
+        last_result = {'id': 0, 'date':''}
         while True:
             try:
-                search_results = searchTweets(api, query,current_date,max_date,max_id,tweet_attributes,
+                searchTweets(api, query,since_date,max_date,max_id,last_result,filename[i],
                                               lang, locale, result_type,print_dates)
                 break
             except tweepy.TweepError as e:
                 print(e.reason)
                 time.sleep(30)
-                max_id = tweet_attributes['id'][-1]
-                current_date = tweet_attributes['date'][-1]
+                max_id = last_result['id']
+                since_date = last_result['date']
+                
                 continue
-        try:
-            saveToCsv(filename[i], search_results)
-        except:
-            print('failed to save file to csv')
-            return search_results
-        try :
-            uploadToGDrive(filename[i])
-        except :
-            print('failed to upload file to google drive')
-            return search_results
-            continue
-    return tweet_attributes
+        
+        
+    return 
 
 def __init__():
     print('Twitter Scraper')
